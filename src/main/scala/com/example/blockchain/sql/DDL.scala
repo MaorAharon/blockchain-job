@@ -4,12 +4,9 @@ import com.example.blockchain.schemas.TokenTransfers._
 
 object DDL {
 
-	def createTableDailyBalances(catalog: String,
-	database: String,
-	table: String
-	): String =
+	def createTableDailyBalances(icebergtable: String): String =
 		(f"""
-			|CREATE TABLE $catalog.$database.$table (
+			|CREATE TABLE $icebergtable (
 			|  $colNameTokenAddress   STRING,
 			|  $colNameWalletAddress  STRING,
 			|  $colNameDate            DATE,
@@ -19,11 +16,8 @@ object DDL {
 			|PARTITIONED BY ($colNameDate)
   """.stripMargin)
 
-	def dropIcebergTable(catalog: String,
-											 database: String,
-											 table: String
-											): String = {
-		f"DROP TABLE IF EXISTS $catalog.$database.$table"
+	def dropIcebergTable(icebergtable: String): String = {
+		f"DROP TABLE IF EXISTS $icebergtable"
 	}
 
 

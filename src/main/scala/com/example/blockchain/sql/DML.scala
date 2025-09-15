@@ -2,14 +2,12 @@ package com.example.blockchain.sql
 
 object DML {
 
-	def dailyBalancesDeletePartition(catalog: String,
-																	database: String,
-																	table: String,
+	def dailyBalancesDeletePartition(icebergTable: String,
 																	partitionValue: String
 																 ): String = {
 
 		f"""
-			DELETE FROM  $catalog.$database.$table
+			DELETE FROM  $icebergTable
 	   	WHERE date = DATE('$partitionValue')
 		"""
 	}

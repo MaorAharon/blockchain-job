@@ -1,58 +1,87 @@
 package com.example.blockchain
 
+import com.example.blockchain.parameters.TokenBalanceJobParameters
+import com.example.blockchain.parser.TokenBalanceJobParametersParser
 import com.example.blockchain.schemas.TokenTransfers._
 import com.example.blockchain.sql.DDL._
 import com.example.blockchain.sql.DML.dailyBalancesDeletePartition
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.DecimalType
+import com.example.blockchain.common.Logging
+import org.apache.iceberg.Table
+import org.apache.iceberg.expressions.Expressions
+import org.apache.iceberg.spark.Spark3Util
+import org.apache.iceberg.spark.actions.SparkActions
 
 import java.sql.Date
 
 /** Computes an approximation to pi */
-object TokenBalanceJob {
+object TokenBalanceJob extends Logging {
+
   def main(args: Array[String]): Unit = {
-    val spark = SparkSession
-      .builder
-      .appName("Spark Pi")
+
+		val params: TokenBalanceJobParameters =
+			TokenBalanceJobParametersParser.parse(args, TokenBalanceJobParameters()).getOrElse(sys.exit(-1))
+
+		implicit val spark: SparkSession = SparkSession
+			.builder
+			.appName("Spark Pi")
 			.master("local[*]")
 			.config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
-			.config("spark.hadoop.fs.s3a.aws.credentials.provider","org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider")
+			.config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider")
 			.config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
 			.config("spark.sql.catalog.local", "org.apache.iceberg.spark.SparkCatalog")
 			.config("spark.sql.catalog.local.type", "hadoop")
 			.config("spark.sql.catalog.local.warehouse", "target/iceberg-warehouse")
 			.getOrCreate()
 
-		val date_ = "2025-09-10"
+		spark.sparkContext.setLogLevel(params.sparkLogLevel)
 
-//		val fileSystemPath10 = f"file:///home/maor/Documents/git/scala/blockchain-job/src/test/resources/token_transfers/date=${date_}/"
-//		val fileSystemPath11 = f"file:///home/maor/Documents/git/scala/blockchain-job/src/test/resources/token_transfers/date=${date_}/"
-		val fileSystemPath = f"file:///home/maor/Documents/git/scala/blockchain-job/src/test/resources/token_transfers/"
+		println(s"\n\n\n\n\n\n\n\nparams:\n${params.toString}\n\n\n\n\n")
 
-		val df = spark
+		if (params.shouldReinitializeTokenTransfers) {
+			spark.sql(dropIcebergTable(params.dailyBalancesTable))
+			spark.sql(createTableDailyBalances(params.dailyBalancesTable))
+		}
+
+		val icebergTable: Table = Spark3Util.loadIcebergTable(spark, params.dailyBalancesTable)
+
+		for (unprocessedHour <- params.unprocessedHours) {
+			val df: DataFrame =
+				getTokenTransfersDF(params.inputPath)
+				.where(col(colNameDate) === unprocessedHour)
+
+			val dailyBalances: DataFrame = calculateDailyBalances(df)
+
+			// delete current partition if exist
+			spark.sql(dailyBalancesDeletePartition(params.dailyBalancesTable, unprocessedHour.toString))
+
+			dailyBalances
+				.writeTo(params.dailyBalancesTable)
+				.append()
+
+			executeCompaction(icebergTable, unprocessedHour)
+
+			val icebergDf: DataFrame = spark.table(params.dailyBalancesTable)
+			icebergDf.where(col(colNameDate) === unprocessedHour).show(5,false)
+		}
+
+  }
+
+	def executeCompaction(dailyBalancesTable: Table, unprocessedHour: Date)(implicit spark: SparkSession): Unit = {
+		SparkActions
+			.get(spark)
+			.rewriteDataFiles(dailyBalancesTable)
+			.filter(Expressions.equal(colNameDate, unprocessedHour.toString))
+	}
+
+	def getTokenTransfersDF(path: String)(implicit spark: SparkSession): DataFrame = {
+		spark
 			.read
 			.schema(tokenTransfersSchema)
-			.parquet(fileSystemPath)
-			.where(col(colNameDate) === Date.valueOf(date_))
-			.where(col(colNameFromAddress) === "0x00000000000000000000000003e0b58dda38e4a5e577bcb71baf4fda25160153" or col(colNameToAddress) === "0x00000000000000000000000003e0b58dda38e4a5e577bcb71baf4fda25160153")
-			.where(col(colNameTokenAddress) === "0x4063496401ba57197b4c03c889440512dbf2278a")
-
-		df.printSchema()
-		df.show(5, false)
-
-		val dailyBalances = calculateDailyBalances(df)
-
-		spark.sql(dropIcebergTable("local", "db", "daily_balances"))
-		spark.sql(createTableDailyBalances("local", "db", "daily_balances"))
-
-		spark.sql(dailyBalancesDeletePartition("local", "db", "daily_balances", date_))
-		dailyBalances.writeTo("local.db.daily_balances")
-			.append()
-//
-		val icebergDf = spark.table("local.db.daily_balances")
-		icebergDf.show(5,false)
-  }
+			.parquet(path)
+	}
 
 	def calculateDailyBalances(df: DataFrame): DataFrame = {
 		val outgoing: DataFrame = df
