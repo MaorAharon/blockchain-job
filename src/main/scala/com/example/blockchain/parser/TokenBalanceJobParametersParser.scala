@@ -43,9 +43,13 @@ object TokenBalanceJobParametersParser
 		.action((x, p) => p.copy(db = x))
 		.text("Database name")
 
-	opt[String]("table")
-		.action((x, p) => p.copy(table = x))
-		.text("Table name")
+	opt[String]("daily-balances-table-name")
+		.action((x, p) => p.copy(dailyBalancesTableName = x))
+		.text("Daily balances Table name")
+
+	opt[String]("wallet-balances-table-name")
+		.action((x, p) => p.copy(walletBalancesTableName = x))
+		.text("Wallet Balances Table name")
 
 	opt[Boolean]("should-reinitialize-token-transfers").action { (x, p) => p.copy(shouldReinitializeTokenTransfers = x) }
 }

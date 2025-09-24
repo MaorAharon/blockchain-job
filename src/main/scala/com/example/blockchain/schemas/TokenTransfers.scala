@@ -17,6 +17,7 @@ object TokenTransfers {
 	val colNameDate: String = "date"
 	val dateFormat: String = "yyyy-MM-dd"
 //	val colNameLastModified: String = "last_modified"
+	val colNameBalancesMap = "balances_map"
 
 	val tokenTransfersSchema = StructType(Seq(
 		StructField(colNameTokenAddress, StringType, nullable = true),

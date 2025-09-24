@@ -42,15 +42,17 @@ object TokenBalanceJob extends Logging {
 
 		if (params.shouldReinitializeTokenTransfers) {
 			spark.sql(dropIcebergTable(params.dailyBalancesTable))
+			spark.sql(dropIcebergTable(params.walletBalancesTable))
 			spark.sql(createTableDailyBalances(params.dailyBalancesTable))
+			spark.sql(createTableWalletBalances(params.walletBalancesTable))
 		}
 
-		val icebergTable: Table = Spark3Util.loadIcebergTable(spark, params.dailyBalancesTable)
+		val icebergDailyBalancesTable: Table = Spark3Util.loadIcebergTable(spark, params.dailyBalancesTable)
+		val icebergWalletBalancesTable: Table = Spark3Util.loadIcebergTable(spark, params.walletBalancesTable)
 
 		for (unprocessedHour <- params.unprocessedHours) {
 			val df: DataFrame =
 				getTokenTransfersDF(params.inputPath)
-				.where(col(colNameDate) === unprocessedHour)
 
 			val dailyBalances: DataFrame = calculateDailyBalances(df)
 
@@ -61,18 +63,27 @@ object TokenBalanceJob extends Logging {
 				.writeTo(params.dailyBalancesTable)
 				.append()
 
-			executeCompaction(icebergTable, unprocessedHour)
+			val walletBalances: DataFrame = calculateCumulativeWalletBalances(dailyBalances, icebergWalletBalancesTable, unprocessedHour)
 
-			val icebergDf: DataFrame = spark.table(params.dailyBalancesTable)
-			icebergDf.where(col(colNameDate) === unprocessedHour).show(5,false)
+			walletBalances
+				.writeTo(params.walletBalancesTable)
+				.append()
+
+			val walletBalancesTable: DataFrame = spark.table(params.walletBalancesTable)
+
+			walletBalancesTable
+				.show(10,false)
+
+			executeCompaction(icebergDailyBalancesTable, unprocessedHour)
+			executeCompaction(icebergWalletBalancesTable, unprocessedHour)
 		}
 
   }
 
-	def executeCompaction(dailyBalancesTable: Table, unprocessedHour: Date)(implicit spark: SparkSession): Unit = {
+	def executeCompaction(tableName: Table, unprocessedHour: Date)(implicit spark: SparkSession): Unit = {
 		SparkActions
 			.get(spark)
-			.rewriteDataFiles(dailyBalancesTable)
+			.rewriteDataFiles(tableName)
 			.filter(Expressions.equal(colNameDate, unprocessedHour.toString))
 	}
 
@@ -81,6 +92,31 @@ object TokenBalanceJob extends Logging {
 			.read
 			.schema(tokenTransfersSchema)
 			.parquet(path)
+	}
+
+	def calculateCumulativeWalletBalances(df: DataFrame, icebergWalletBalancesTable: Table, unprocessedHour: Date)(implicit spark: SparkSession): DataFrame = {
+
+	val explodedPrev = spark.read.format("iceberg")
+		.load(icebergWalletBalancesTable.name())
+		.where(col(colNameDate) === Date.valueOf(unprocessedHour.toLocalDate.minusDays(1)))
+			.select(
+				col(colNameWalletAddress),
+				col(colNameDate),
+				explode(col(colNameBalancesMap)).as(Seq(colNameTokenAddress, colNameDailyBalance))
+			)
+		.select(colNameTokenAddress, colNameWalletAddress, colNameDate, colNameDailyBalance)
+
+		val merged = explodedPrev.unionByName(df)
+			.groupBy(colNameWalletAddress, colNameTokenAddress)
+			.agg(sum(col(colNameDailyBalance)).alias(colNameDailyBalance))
+			.filter(col(colNameDailyBalance).isNotNull && col(colNameDailyBalance) =!= lit(0)) // clean balance 0
+
+		val mergedMap = merged
+			.groupBy(colNameWalletAddress)
+			.agg(map_from_entries(collect_list(struct(col(colNameTokenAddress), col(colNameDailyBalance)))).alias(colNameBalancesMap))
+			.withColumn(colNameDate, lit(unprocessedHour))
+
+		mergedMap
 	}
 
 	def calculateDailyBalances(df: DataFrame): DataFrame = {

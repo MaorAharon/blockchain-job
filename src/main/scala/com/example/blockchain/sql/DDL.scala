@@ -20,5 +20,14 @@ object DDL {
 		f"DROP TABLE IF EXISTS $icebergtable"
 	}
 
-
+	def createTableWalletBalances(icebergTable: String): String =
+		s"""
+			 |CREATE TABLE $icebergTable (
+			 |  $colNameWalletAddress STRING,
+			 |  $colNameDate DATE,
+			 |  $colNameBalancesMap MAP<STRING, DECIMAL(38,4)>
+			 |)
+			 |USING iceberg
+			 |PARTITIONED BY ($colNameDate)
+   """.stripMargin
 }
