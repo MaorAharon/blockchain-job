@@ -9,11 +9,11 @@ object DDL {
 			|CREATE TABLE $icebergtable (
 			|  $colNameTokenAddress   STRING,
 			|  $colNameWalletAddress  STRING,
-			|  $colNameDate            DATE,
+			|  $colNameBlockDate            DATE,
 			|  $colNameDailyBalance   DECIMAL(38, 4)
 			|)
 			|USING iceberg
-			|PARTITIONED BY ($colNameDate)
+			|PARTITIONED BY ($colNameBlockDate)
   """.stripMargin)
 
 	def dropIcebergTable(icebergtable: String): String = {
@@ -24,10 +24,10 @@ object DDL {
 		s"""
 			 |CREATE TABLE $icebergTable (
 			 |  $colNameWalletAddress STRING,
-			 |  $colNameDate DATE,
+			 |  $colNameBlockDate DATE,
 			 |  $colNameBalancesMap MAP<STRING, DECIMAL(38,4)>
 			 |)
 			 |USING iceberg
-			 |PARTITIONED BY ($colNameDate)
+			 |PARTITIONED BY ($colNameBlockDate)
    """.stripMargin
 }

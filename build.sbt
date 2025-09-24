@@ -11,8 +11,8 @@ lazy val root = (project in file("."))
 
 		libraryDependencies ++= Seq(
 			// Spark core + SQL
-			"org.apache.spark" %% "spark-core" % sparkVersion % Provided,
-			"org.apache.spark" %% "spark-sql"  % sparkVersion % Provided,
+			"org.apache.spark" %% "spark-core" % sparkVersion,
+			"org.apache.spark" %% "spark-sql"  % sparkVersion,
 
 			// Hadoop AWS connector (for s3a:// support)
 			"org.apache.hadoop" % "hadoop-aws" % "3.3.4",

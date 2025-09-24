@@ -53,24 +53,23 @@ object TokenBalanceJob extends Logging {
 		for (unprocessedHour <- params.unprocessedHours) {
 			val df: DataFrame =
 				getTokenTransfersDF(params.inputPath)
-
-			val dailyBalances: DataFrame = calculateDailyBalances(df)
+					.where(col(colNameDate) === unprocessedHour)
 
 			// delete current partition if exist
 			spark.sql(dailyBalancesDeletePartition(params.dailyBalancesTable, unprocessedHour.toString))
+			spark.sql(dailyBalancesDeletePartition(params.walletBalancesTable, unprocessedHour.toString))
 
+			val dailyBalances: DataFrame = calculateDailyBalances(df)
 			dailyBalances
 				.writeTo(params.dailyBalancesTable)
 				.append()
 
 			val walletBalances: DataFrame = calculateCumulativeWalletBalances(dailyBalances, icebergWalletBalancesTable, unprocessedHour)
-
 			walletBalances
 				.writeTo(params.walletBalancesTable)
 				.append()
 
 			val walletBalancesTable: DataFrame = spark.table(params.walletBalancesTable)
-
 			walletBalancesTable
 				.show(10,false)
 
@@ -92,29 +91,34 @@ object TokenBalanceJob extends Logging {
 			.read
 			.schema(tokenTransfersSchema)
 			.parquet(path)
+			.withColumn(colNameBlockDate, to_date(col(colNameBlockTimestamp)))
 	}
 
 	def calculateCumulativeWalletBalances(df: DataFrame, icebergWalletBalancesTable: Table, unprocessedHour: Date)(implicit spark: SparkSession): DataFrame = {
 
 	val explodedPrev = spark.read.format("iceberg")
 		.load(icebergWalletBalancesTable.name())
-		.where(col(colNameDate) === Date.valueOf(unprocessedHour.toLocalDate.minusDays(1)))
+		.where(col(colNameBlockDate) === Date.valueOf(unprocessedHour.toLocalDate.minusDays(1)))
 			.select(
+				col(colNameBlockDate),
 				col(colNameWalletAddress),
-				col(colNameDate),
 				explode(col(colNameBalancesMap)).as(Seq(colNameTokenAddress, colNameDailyBalance))
 			)
-		.select(colNameTokenAddress, colNameWalletAddress, colNameDate, colNameDailyBalance)
 
-		val merged = explodedPrev.unionByName(df)
-			.groupBy(colNameWalletAddress, colNameTokenAddress)
+		val merged = explodedPrev.unionByName(df
+				.select(
+					col(colNameBlockDate),
+					col(colNameWalletAddress),
+					col(colNameTokenAddress),
+					col(colNameDailyBalance)
+				))
+			.groupBy(colNameWalletAddress, colNameTokenAddress, colNameBlockDate)
 			.agg(sum(col(colNameDailyBalance)).alias(colNameDailyBalance))
 			.filter(col(colNameDailyBalance).isNotNull && col(colNameDailyBalance) =!= lit(0)) // clean balance 0
 
 		val mergedMap = merged
-			.groupBy(colNameWalletAddress)
+			.groupBy(colNameWalletAddress, colNameBlockDate)
 			.agg(map_from_entries(collect_list(struct(col(colNameTokenAddress), col(colNameDailyBalance)))).alias(colNameBalancesMap))
-			.withColumn(colNameDate, lit(unprocessedHour))
 
 		mergedMap
 	}
@@ -124,7 +128,7 @@ object TokenBalanceJob extends Logging {
 			.select(
 				col(colNameTokenAddress),
 				col(colNameFromAddress).alias(colNameWalletAddress),
-				col(colNameDate),
+				col(colNameBlockDate),
 				col(colNameValue).multiply(-1).alias(colNameValue)
 			)
 
@@ -132,15 +136,14 @@ object TokenBalanceJob extends Logging {
 			.select(
 				col(colNameTokenAddress),
 				col(colNameToAddress).alias(colNameWalletAddress),
-				col(colNameDate),
+				col(colNameBlockDate),
 				col(colNameValue).alias(colNameValue)
 			)
 
 		outgoing.union(incoming)
-			.groupBy(colNameTokenAddress, colNameWalletAddress, colNameDate)
+			.groupBy(colNameTokenAddress, colNameWalletAddress, colNameBlockDate)
 			.agg(sum(col(colNameValue)).alias(colNameDailyBalance))
 			.withColumn(colNameDailyBalance,col(colNameDailyBalance).cast(DecimalType(38,4)))
-
-
+			.filter(col(colNameDailyBalance).isNotNull && col(colNameDailyBalance) =!= lit(0)) // clean balance 0
 	}
 }

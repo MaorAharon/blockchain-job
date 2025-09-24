@@ -13,7 +13,8 @@ object TokenTransfers {
 //	val colNameLogIndex: String = "log_index"
 //	val colNameBlockNumber: String = "block_number"
 //	val colNameBlockHash: String = "block_hash"
-//	val colNameBlockTimestamp: String = "block_timestamp"
+	val colNameBlockTimestamp: String = "block_timestamp"
+	val colNameBlockDate: String = "block_date"
 	val colNameDate: String = "date"
 	val dateFormat: String = "yyyy-MM-dd"
 //	val colNameLastModified: String = "last_modified"
@@ -28,7 +29,7 @@ object TokenTransfers {
 //		StructField(colNameLogIndex, LongType, nullable = true),
 //		StructField(colNameBlockNumber, LongType, nullable = true),
 //		StructField(colNameBlockHash, StringType, nullable = true),
-//		StructField(colNameBlockTimestamp, TimestampType, nullable = true),
+		StructField(colNameBlockTimestamp, TimestampType, nullable = true),
 		StructField(colNameDate, DateType, nullable = true)
 //		StructField(colNameLastModified, TimestampType, nullable = true)
 	))
