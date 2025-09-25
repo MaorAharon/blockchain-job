@@ -4,8 +4,9 @@ import java.sql.Date
 
 case class TokenBalanceJobParameters(
 																			unprocessedHours: Seq[Date] = Seq(Date.valueOf("2025-09-10"), Date.valueOf("2025-09-11")),
-																			sparkLogLevel: String = "WARN",
+																			sparkLogLevel: String = "INFO",
 																			bucket: String = "file:///home/maor/Documents/git/scala/blockchain-job/src/test/resources",
+//																			bucket: String = "s3a://aws-public-blockchain/v1.0/eth",
 																			prefix: String = "token_transfers",
 																			icebergCatalog: String = "local",
 																			db: String = "db",

@@ -4,7 +4,7 @@ import com.example.blockchain.parameters.TokenBalanceJobParameters
 import com.example.blockchain.parser.TokenBalanceJobParametersParser
 import com.example.blockchain.schemas.TokenTransfers._
 import com.example.blockchain.sql.DDL._
-import com.example.blockchain.sql.DML.dailyBalancesDeletePartition
+import com.example.blockchain.sql.DML._
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.DecimalType
@@ -57,12 +57,15 @@ object TokenBalanceJob extends Logging {
 
 			// delete current partition if exist
 			spark.sql(dailyBalancesDeletePartition(params.dailyBalancesTable, unprocessedHour.toString))
-			spark.sql(dailyBalancesDeletePartition(params.walletBalancesTable, unprocessedHour.toString))
+			spark.sql(walletBalancesDeletePartition(params.walletBalancesTable, unprocessedHour.toString))
 
 			val dailyBalances: DataFrame = calculateDailyBalances(df)
+			dailyBalances.cache()
+
 			dailyBalances
 				.writeTo(params.dailyBalancesTable)
 				.append()
+			dailyBalances.show(10,false)
 
 			val walletBalances: DataFrame = calculateCumulativeWalletBalances(dailyBalances, icebergWalletBalancesTable, unprocessedHour)
 			walletBalances
@@ -96,31 +99,47 @@ object TokenBalanceJob extends Logging {
 
 	def calculateCumulativeWalletBalances(df: DataFrame, icebergWalletBalancesTable: Table, unprocessedHour: Date)(implicit spark: SparkSession): DataFrame = {
 
-	val explodedPrev = spark.read.format("iceberg")
-		.load(icebergWalletBalancesTable.name())
-		.where(col(colNameBlockDate) === Date.valueOf(unprocessedHour.toLocalDate.minusDays(1)))
-			.select(
-				col(colNameBlockDate),
-				col(colNameWalletAddress),
-				explode(col(colNameBalancesMap)).as(Seq(colNameTokenAddress, colNameDailyBalance))
-			)
+		val prevBalances = "prev_balances"
+		val currBalances = "curr_balances"
 
-		val merged = explodedPrev.unionByName(df
+		val prevDF: DataFrame = spark.read.format("iceberg")
+			.load(icebergWalletBalancesTable.name())
+			.where(col(colNameDate) === Date.valueOf(unprocessedHour.toLocalDate.minusDays(1)))
+			.withColumnRenamed(colNameBalancesMap, prevBalances)
+
+			val currDF: DataFrame = df
+				.groupBy(colNameWalletAddress, colNameTokenAddress, colNameBlockDate)
+				.agg(sum(col(colNameDailyBalance)).alias(colNameDailyBalance))
+				.filter(col(colNameDailyBalance).isNotNull && col(colNameDailyBalance) =!= lit(0))
+				.groupBy(colNameWalletAddress, colNameBlockDate)
+				.agg(
+					map_from_entries(
+						collect_list(struct(col(colNameTokenAddress), col(colNameDailyBalance)))
+					).alias(colNameBalancesMap)
+				)
+				.withColumnRenamed(colNameBalancesMap, currBalances)
+
+			val joined: DataFrame = prevDF.join(currDF, Seq(colNameWalletAddress), "full_outer") // 1 wallet per df
+
+			val merged: DataFrame = joined
+				.withColumn(prevBalances, coalesce(col(prevBalances), map()))
+				.withColumn(currBalances, coalesce(col(currBalances), map()))
+				.withColumn(
+					colNameBalancesMap,
+					expr(s"""
+						map_zip_with($prevBalances, $currBalances,
+							(k, v1, v2) -> coalesce(v1, cast(0 as decimal(38,4))) + coalesce(v2, cast(0 as decimal(38,4)))
+						)
+					""") // by explicitly casting 0 to decimal(38,4), you tell Spark keep the same scale/precision as my map values.
+				)
+				.withColumn(colNameDate, lit(unprocessedHour))
 				.select(
-					col(colNameBlockDate),
 					col(colNameWalletAddress),
-					col(colNameTokenAddress),
-					col(colNameDailyBalance)
-				))
-			.groupBy(colNameWalletAddress, colNameTokenAddress, colNameBlockDate)
-			.agg(sum(col(colNameDailyBalance)).alias(colNameDailyBalance))
-			.filter(col(colNameDailyBalance).isNotNull && col(colNameDailyBalance) =!= lit(0)) // clean balance 0
+					col(colNameDate),
+					col(colNameBalancesMap)
+				)
 
-		val mergedMap = merged
-			.groupBy(colNameWalletAddress, colNameBlockDate)
-			.agg(map_from_entries(collect_list(struct(col(colNameTokenAddress), col(colNameDailyBalance)))).alias(colNameBalancesMap))
-
-		mergedMap
+			merged
 	}
 
 	def calculateDailyBalances(df: DataFrame): DataFrame = {

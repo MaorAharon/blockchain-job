@@ -1,6 +1,6 @@
 package com.example.blockchain.sql
 
-import com.example.blockchain.schemas.TokenTransfers.colNameBlockDate
+import com.example.blockchain.schemas.TokenTransfers._
 
 object DML {
 
@@ -20,6 +20,15 @@ object DML {
 		f"""
 			DELETE FROM  $icebergTable
 	   	WHERE $colNameBlockDate >= DATE('$partitionValue')
+		"""
+	}
+
+	def walletBalancesDeletePartition(icebergTable: String,
+																	 partitionValue: String
+																	): String = {
+		f"""
+			DELETE FROM  $icebergTable
+	   	WHERE $colNameDate >= DATE('$partitionValue')
 		"""
 	}
 

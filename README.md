@@ -84,12 +84,14 @@ spark-submit \
   --class com.example.blockchain.TokenBalanceJob \
   --master local \
   --class com.example.blockchain.TokenBalanceJob < path-to-the-jar >/blockchain-job-assembly.jar \
+  --spark-log-level INFO \
   --unprocessed-hours 2025-09-10 \
   --bucket s3a://aws-public-blockchain/v1.0/eth \
   --prefix token_transfers \
   --iceberg-catalog local \
   --db db \
-  --table daily_balances \
+  --daily-balances-table-name daily_balances \
+  --wallet-balances-table-name wallet_balances \
   --should-reinitialize-token-transfers true
 ```
 

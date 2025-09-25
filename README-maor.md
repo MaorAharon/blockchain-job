@@ -58,6 +58,7 @@ spark-submit \
   --prefix token_transfers \
   --iceberg-catalog local \
   --db db \
-  --table daily_balances \
+  --daily-balances-table-name daily_balances \
+  --wallet-balances-table-name wallet_balances \
   --should-reinitialize-token-transfers no
 ```

@@ -24,10 +24,10 @@ object DDL {
 		s"""
 			 |CREATE TABLE $icebergTable (
 			 |  $colNameWalletAddress STRING,
-			 |  $colNameBlockDate DATE,
+			 |  $colNameDate DATE,
 			 |  $colNameBalancesMap MAP<STRING, DECIMAL(38,4)>
 			 |)
 			 |USING iceberg
-			 |PARTITIONED BY ($colNameBlockDate)
+			 |PARTITIONED BY ($colNameDate)
    """.stripMargin
 }
